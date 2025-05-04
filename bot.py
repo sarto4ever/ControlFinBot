@@ -36,13 +36,31 @@ def save_data(data):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 # === Главное меню ===
+
+async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    # Проверим, откуда вызывать возврат
+    current_state = context.user_data.get('state')
+
+    if current_state == "adding_button":
+        # Вернёмся в меню управления кнопками
+        await button_handler(update, context)  # повторно вызовем с тем же callback_data
+        return ConversationHandler.END
+
+    # По умолчанию — в главное меню
+    await start(query, context, is_edit=True)
+    return ConversationHandler.END
+
+
 async def start(source, context: ContextTypes.DEFAULT_TYPE, is_edit=False):
-    if isinstance(source, Update):
+    if hasattr(source, 'from_user'):
+        user = source.from_user
+        chat_id = source.message.chat_id if hasattr(source, 'message') else source.message.chat.id
+    else:
         user = source.effective_user
         chat_id = source.effective_chat.id
-    else:
-        user = source.from_user
-        chat_id = source.message.chat_id
 
     if user.id not in AUTHORIZED_USERS:
         await context.bot.send_message(chat_id=chat_id, text="⛔️ У вас нет доступа.")
@@ -51,7 +69,7 @@ async def start(source, context: ContextTypes.DEFAULT_TYPE, is_edit=False):
     data = load_data()
     buttons = data.get("expense_buttons", [])
     quick_buttons = [
-        InlineKeyboardButton(f"{item['label']} ({item['amount']}₽)", callback_data=f"quick_expense:{item['amount']}")
+        InlineKeyboardButton(f"{item['label']} ({item['amount']}{get_currency()})", callback_data=f"quick_expense:{item['amount']}")
         for item in buttons
     ]
     rows = [quick_buttons[i:i + 2] for i in range(0, len(quick_buttons), 2)]
@@ -66,10 +84,12 @@ async def start(source, context: ContextTypes.DEFAULT_TYPE, is_edit=False):
         [InlineKeyboardButton("⚠️ Администрирование", callback_data='admin_menu')]
     ]
 
-    if isinstance(source, Update):
-        await source.message.reply_text("Выберите действие:", reply_markup=InlineKeyboardMarkup(keyboard))
-    else:
+    # Главное: всегда редактируем сообщение, если можно
+    if hasattr(source, 'edit_message_text'):
         await source.edit_message_text("Выберите действие:", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="Выберите действие:", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 # === Обработка всех кнопок ===
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -96,7 +116,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         case 'view_balance':
             balance = load_data()['balance']
-            await query.edit_message_text(f"📊 Баланс: {balance}₽", reply_markup=InlineKeyboardMarkup([
+            await query.edit_message_text(f"📊 Баланс: {balance}{get_currency()}", reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Назад", callback_data='back')]
             ]))
             return ConversationHandler.END
@@ -113,7 +133,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "timestamp": datetime.now().isoformat()
             })
             save_data(db)
-            await query.edit_message_text(f"✅ Трата {amount}₽ добавлена. Баланс: {db['balance']}₽", reply_markup=InlineKeyboardMarkup([
+            await query.edit_message_text(f"✅ Трата {amount}{get_currency()} добавлена. Баланс: {db['balance']}{get_currency()}", reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Назад", callback_data='back')]
             ]))
             return ConversationHandler.END
@@ -167,10 +187,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         case 'add_button':
+            context.user_data['state'] = 'adding_button'
             await query.edit_message_text("Введите название кнопки:", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Назад", callback_data='manage_buttons')]
+                [InlineKeyboardButton("🔙 Назад", callback_data='back')]
             ]))
             return ADDING_BUTTON_LABEL
+
 
         case 'admin_menu':
             keyboard = [
@@ -195,7 +217,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db = load_data()
             db["balance"] = 0
             save_data(db)
-            await query.edit_message_text("🔄 Баланс сброшен до 0₽.", reply_markup=InlineKeyboardMarkup([
+            await query.edit_message_text(f"🔄 Баланс сброшен до 0{get_currency()}.", reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔙 Назад", callback_data='back')]
             ]))
             return ConversationHandler.END
@@ -219,7 +241,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 dt = datetime.fromisoformat(tx["timestamp"]).strftime("%d.%m %H:%M")
                 icon = "➕" if tx["type"] == "income" else "➖"
                 name = tx.get("user_name", "❓")
-                lines.append(f"{icon} {tx['amount']}₽ — {dt} ({name})")
+                lines.append(f"{icon} {tx['amount']}{get_currency()} — {dt} ({name})")
 
             # Если строк много — разбить на части
             chunk_size = 40
@@ -289,7 +311,7 @@ async def show_history_page(query, context):
         dt = datetime.fromisoformat(tx["timestamp"]).strftime("%d.%m %H:%M")
         name = tx.get("user_name", "❓")
         icon = "➕" if tx["type"] == "income" else "➖"
-        lines.append(f"{icon} {tx['amount']}₽ — {dt} ({name})")
+        lines.append(f"{icon} {tx['amount']}{get_currency()} — {dt} ({name})")
 
     nav = []
     if page > 0:
@@ -323,7 +345,7 @@ async def handle_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().isoformat()
     })
     save_data(db)
-    await update.message.reply_text(f"✅ Трата {amount}₽ добавлена. Баланс: {db['balance']}₽", reply_markup=InlineKeyboardMarkup([
+    await update.message.reply_text(f"✅ Трата {amount}{get_currency()} добавлена. Баланс: {db['balance']}{get_currency()}", reply_markup=InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Назад", callback_data='back')]
     ]))
     return ConversationHandler.END
@@ -344,7 +366,7 @@ async def handle_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "timestamp": datetime.now().isoformat()
     })
     save_data(db)
-    await update.message.reply_text(f"✅ Пополнение {amount}₽ добавлено. Баланс: {db['balance']}₽", reply_markup=InlineKeyboardMarkup([
+    await update.message.reply_text(f"✅ Пополнение {amount}{get_currency()} добавлено. Баланс: {db['balance']}{get_currency()}", reply_markup=InlineKeyboardMarkup([
         [InlineKeyboardButton("🔙 Назад", callback_data='back')]
     ]))
     return ConversationHandler.END
@@ -352,8 +374,9 @@ async def handle_income(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_button_label(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp_button['label'] = update.message.text
     await update.message.reply_text("Введите сумму:", reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 Назад", callback_data='manage_buttons')]
+        [InlineKeyboardButton("🔙 Назад", callback_data='back')]
     ]))
+
     return ADDING_BUTTON_AMOUNT
 
 async def handle_button_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -368,8 +391,8 @@ async def handle_button_amount(update: Update, context: ContextTypes.DEFAULT_TYP
         "amount": amount
     })
     save_data(db)
-    await update.message.reply_text(f"✅ Добавлена кнопка: {temp_button['label']} {amount}₽", reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔙 Назад", callback_data='manage_buttons')]
+    await update.message.reply_text(f"✅ Добавлена кнопка: {temp_button['label']} {amount}{get_currency()}", reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Назад", callback_data='back')]
     ]))
     temp_button.clear()
     return ConversationHandler.END
@@ -398,12 +421,24 @@ def main():
         states={
             ADDING_EXPENSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_expense)],
             ADDING_INCOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_income)],
-            ADDING_BUTTON_LABEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_button_label)],
-            ADDING_BUTTON_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_button_amount)],
-            ADDING_CUSTOM_CURRENCY: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_currency)],
+            ADDING_BUTTON_LABEL: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_button_label),
+                CallbackQueryHandler(handle_back, pattern="^back$")
+            ],
+            ADDING_BUTTON_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_button_amount),
+                CallbackQueryHandler(handle_back, pattern="^back$")
+            ],
+            ADDING_CUSTOM_CURRENCY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_currency),
+                CallbackQueryHandler(handle_back, pattern="^back$")
+            ],
         },
-        fallbacks=[]
+        fallbacks=[
+            CallbackQueryHandler(handle_back, pattern="^back$")
+        ]
     )
+
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
