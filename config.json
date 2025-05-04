@@ -1,0 +1,4 @@
+{
+  "token": "YOUR_TELEGRAM_BOT_TOKEN",
+  "authorized_users": [12345678, 87654321]
+}

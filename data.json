@@ -1,0 +1,45 @@
+{
+  "balance": 1350,
+  "currency": "₽",
+  "transactions": [
+    {
+      "type": "income",
+      "amount": 2000,
+      "user_id": 12345678,
+      "user_name": "Иван",
+      "timestamp": "2025-05-04T16:00:00"
+    },
+    {
+      "type": "expense",
+      "amount": 500,
+      "user_id": 87654321,
+      "user_name": "Оля",
+      "timestamp": "2025-05-04T17:30:00"
+    },
+    {
+      "type": "expense",
+      "amount": 150,
+      "user_id": 12345678,
+      "user_name": "Иван",
+      "timestamp": "2025-05-04T18:00:00"
+    }
+  ],
+  "expense_buttons": [
+    {
+      "label": "☕ Кофе",
+      "amount": 150
+    },
+    {
+      "label": "🍱 Обед",
+      "amount": 500
+    },
+    {
+      "label": "🚌 Транспорт",
+      "amount": 100
+    },
+    {
+      "label": "📱 Мобильная связь",
+      "amount": 300
+    }
+  ]
+}
